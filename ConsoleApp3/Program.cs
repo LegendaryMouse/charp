@@ -69,6 +69,7 @@ public static class Arena
         foreach (IDamageable figher in fighters.Values)
         {
             fightersQueue.Enqueue(figher);
+            figher.OnDied += OnFighterDeath;
         }
 
         // Основной цикл боя
@@ -106,7 +107,7 @@ public static class Arena
         Console.WriteLine("THE BATTLE IS OVER");
         await logger.WriteLineAsync("THE BATTLE IS OVER");
         var winner = fightersQueue.FirstOrDefault(p => p.IsAlive && p is Fighter);
-        if (winner != null) Console.WriteLine($"{winner.Name.ToUpper()} WON!");
+        if (winner != null) { Console.WriteLine($"{winner.Name.ToUpper()} WON!"); winner.OnDied -= OnFighterDeath; }
         else Console.WriteLine("EVERYONE'S DEAD. DRAW!)");
     }
     public static async Task Test(Func<Dictionary<string, IDamageable>, int, Task> func, Dictionary<string, IDamageable> list, int count, int delay)
@@ -128,6 +129,10 @@ public static class Arena
 
         Console.WriteLine($"Command: {command} Target: {target} Value: {value}");
         Console.WriteLine();
+    }
+    public static void OnFighterDeath(IDamageable corpse)
+    {
+        Console.WriteLine(corpse.Name + " Died!");
     }
     public static void DrawHealthBar(IDamageable fighter)
     {
@@ -159,7 +164,7 @@ public readonly struct DamageInfo
         IsCritical = isCritical;
     }
 }
-public interface IDamageable
+public interface IDamageable : IDisposable
 {
     int HitPoints { get; }
     int MaxHP { get; }
@@ -167,6 +172,8 @@ public interface IDamageable
     string Name { get; }
 
     Task TakeDamage(DamageInfo damageInfo);
+
+    event Action<IDamageable> OnDied;
 }
 public class Fighter : IDamageable
 {
@@ -184,9 +191,9 @@ public class Fighter : IDamageable
         }
     }
 
-    public int MaxHP { get; private set ; }
-    private int _damage {  get; set; }
-    private int _defense {  get; set; }
+    public int MaxHP { get; private set; }
+    private int _damage { get; set; }
+    private int _defense { get; set; }
     private float _critChance { get; set; }
     public string Name { get; private set; }
     public bool IsAlive => HitPoints > 0;
@@ -207,15 +214,21 @@ public class Fighter : IDamageable
         DamageInfo damageInfo = new DamageInfo(damage, isCritical);
         await target.TakeDamage(damageInfo);
 
-        if(isCritical) Console.Write("Critical hit! ");
+        if (isCritical) Console.Write("Critical hit! ");
         Console.WriteLine($"{this.Name} attacks {target.Name} with {damage} damage");
     }
     public virtual async Task TakeDamage(DamageInfo damageInfo)
     {
-        if(damageInfo.IsCritical) HitPoints -= (damageInfo.Damage * 2 - this._defense);
+        if (damageInfo.IsCritical) HitPoints -= (damageInfo.Damage * 2 - this._defense);
         else HitPoints -= (damageInfo.Damage - this._defense);
-    }
 
+        if (!IsAlive) { OnDied?.Invoke(this); Dispose(); }
+    }
+    public event Action<IDamageable> OnDied;
+    public void Dispose()
+    {
+        OnDied = null;
+    }
     public Fighter(int hitPoints, int damage, int defense, float critChance, string name)
     {
         this.HitPoints = hitPoints;
@@ -250,6 +263,13 @@ public class Barrel :IDamageable
     {
         if (damageInfo.IsCritical) HitPoints -= (damageInfo.Damage * 2 - this._defense);
         else HitPoints -= (damageInfo.Damage - this._defense);
+
+        if (!IsAlive) { OnDied?.Invoke(this); Dispose(); }
+    }
+    public event Action<IDamageable> OnDied;
+    public void Dispose()
+    {
+        OnDied = null;
     }
     public Barrel(int hitPoints, int defense, string name)
     {
