@@ -1,4 +1,7 @@
-﻿int delayMs = 250;
+﻿using System.Text.Json;
+using Spectre.Console;
+
+int delayMs = 250;
 
 // Проверка аргументов
 if (args.Length == 0)
@@ -15,58 +18,48 @@ else
 }
 Console.WriteLine();
 
-Dictionary<string, IDamageable> fighters = new Dictionary<string, IDamageable>();
 
+List<FighterConfig> fightersConfigList = new List<FighterConfig>();
+fightersConfigList.Add(new FighterConfig(150, 5, 2, 0.2f, "White Wolf"));
+fightersConfigList.Add(new FighterConfig(100, 3, 3, 0.5f, "Black Wolf"));
+fightersConfigList.Add(new FighterConfig(50, 3, 3, 0.2f, "Black Wolf Brother"));
 
-Fighter whiteWolf = new Fighter(150, 5, 2, 0.2f, "White Wolf");
-Rogue blackWolf = new Rogue(100, 3, 3, 0.5f, "Black Wolf", 0.2f);
-Rogue blackWolf1 = new Rogue(50, 3, 3, 0.2f, "Black Wolf Brother", 0.1f);
-Barrel justABarrel = new Barrel(200, 1, "Just Barrel");
-Barrel justABarrel1 = new Barrel(250, 3, "Just Another Barrel");
-Fighter secretBoss = new Fighter(500, 6, 3, 0.4f, "Secret Boss");
+using var logger = new StreamWriter("fighters_list.txt", append: false);
+var options = new JsonSerializerOptions { WriteIndented = true };
+logger.Write(JsonSerializer.Serialize(fightersConfigList, options));
+logger.Close();
 
-fighters.Add(whiteWolf.Name, whiteWolf);
-fighters.Add(blackWolf.Name, blackWolf);
-fighters.Add(blackWolf1.Name, blackWolf1);
-fighters.Add(justABarrel.Name, justABarrel);
-fighters.Add(justABarrel1.Name, justABarrel1);
-fighters.Add(secretBoss.Name, secretBoss);
-
-// Проверка Equals
-Console.WriteLine(whiteWolf.Equals(whiteWolf));
-Console.WriteLine(whiteWolf.Equals(blackWolf));
-Console.WriteLine();
-
-// Проверка словаря
-if (!fighters.TryGetValue("Secret Boss", out var boss)) { Console.WriteLine("No secret boss :( "); }
-else { Console.WriteLine($"THERE WAS A {boss.Name} INDEED!"); }
-Console.WriteLine();
-
-// Проверка Span
-string rawCommand = "HEAL:White Wolf:50";
-Arena.ParseAndExecute(rawCommand);
-
+// Десериализация
+static List<FighterConfig> DeserializeFightersList()
+{
+    using var logger = new StreamReader("fighters_list.txt");
+    List<FighterConfig> fighters = JsonSerializer.Deserialize<List<FighterConfig>>(logger.BaseStream);
+    AnsiConsole.MarkupLine("[yellow]Fighters loaded from JSON successfully![/]");
+    return fighters;
+}
+var fighters = DeserializeFightersList().Select(c => new Fighter(c.HitPoints, c.Damage, c.Defense, c.CritChance, c.Name)).ToList();
 
 await Arena.Test(Arena.BattleRoyale, fighters, 1, delayMs);
 
 public static class Arena
 {
-    public static async Task BattleRoyale(Dictionary<string, IDamageable> fighters, int delay)
+    public static async Task BattleRoyale(List<Fighter> fighters, int delay)
     {
         // Вступление: заголовок, представление и запись всех бойцов в очередь
         using var logger = new StreamWriter("battle_log.txt", append: true);
-        Console.WriteLine("THE ROYAL BATTLE HAS BEGUN. PARTICIPANTS: ");
+        AnsiConsole.MarkupLine("[bold red]THE ROYAL BATTLE HAS BEGUN[/]");
+        Console.WriteLine("PARTICIPANTS: ");
         await logger.WriteLineAsync("THE ROYAL BATTLE HAS BEGUN");
 
-        foreach (string name in fighters.Keys)
+        foreach (Fighter fighter in fighters)
         {
-            Console.WriteLine($"{name}");
+            Console.WriteLine($"{fighter.Name}");
         }
         await Task.Delay(3000);
         Console.Clear();
 
         Queue<IDamageable> fightersQueue = new Queue<IDamageable>();
-        foreach (IDamageable figher in fighters.Values)
+        foreach (IDamageable figher in fighters)
         {
             fightersQueue.Enqueue(figher);
             figher.OnDied += OnFighterDeath;
@@ -110,25 +103,12 @@ public static class Arena
         if (winner != null) { Console.WriteLine($"{winner.Name.ToUpper()} WON!"); winner.OnDied -= OnFighterDeath; }
         else Console.WriteLine("EVERYONE'S DEAD. DRAW!)");
     }
-    public static async Task Test(Func<Dictionary<string, IDamageable>, int, Task> func, Dictionary<string, IDamageable> list, int count, int delay)
+    public static async Task Test(Func<List<Fighter>, int, Task> func, List<Fighter> list, int count, int delay)
     {
         for (int i = 0;i < count;i++)
         {
             await func(list, delay);
         }
-    }
-    public static void ParseAndExecute(string rawCommand)
-    {
-        ReadOnlySpan<char> span = rawCommand.AsSpan();
-        int colonPosition = span.IndexOf(":");
-        int lastColonPosition = span.LastIndexOf(":");
-
-        ReadOnlySpan<char> command = span.Slice(0, colonPosition);
-        ReadOnlySpan<char> target = span[(colonPosition+1)..lastColonPosition];
-        ReadOnlySpan<char> value = span[(lastColonPosition+1)..];
-
-        Console.WriteLine($"Command: {command} Target: {target} Value: {value}");
-        Console.WriteLine();
     }
     public static void OnFighterDeath(IDamageable corpse)
     {
@@ -174,6 +154,23 @@ public interface IDamageable : IDisposable
     Task TakeDamage(DamageInfo damageInfo);
 
     event Action<IDamageable> OnDied;
+}
+public class FighterConfig
+{
+    public FighterConfig(int hitPoints, int damage, int defense, float critChance, string name)
+    {
+        Name = name;
+        HitPoints = hitPoints;
+        Damage = damage;
+        Defense = defense;
+        CritChance = critChance;
+    }
+
+    public string Name { get; set; }
+    public int HitPoints { get; set; }
+    public int Damage { get; set; }
+    public int Defense { get; set; }
+    public float CritChance { get; set; }
 }
 public class Fighter : IDamageable
 {
